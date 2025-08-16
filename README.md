@@ -1,4 +1,5 @@
 This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+"A full-stack Library Management System built with React Native (CLI) for the mobile app and Node.js, Express, and PostgreSQL for the backend. User authentication is handled with AWS Cognito. The system enables seamless library seat bookings, resource management, and secure user access."
 
 # Getting Started
 
