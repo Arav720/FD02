@@ -53,6 +53,7 @@ export const useStorage = () => {
 // Storage keys
 export const STORAGE_KEYS = {
   SELECTED_LOCATION: 'selected_location',
+  SELECTED_LIBRARY: 'selected_library',
   CURRENT_USER: 'current_user',
   ALL_USERS: 'all_users',
   BOOKING_HISTORY: 'booking_history',

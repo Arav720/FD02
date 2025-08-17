@@ -50,6 +50,7 @@ export default function LocationPicker({
   const handleLocationSelect = (city: string) => {
     onLocationChange(city);
     setItem(STORAGE_KEYS.SELECTED_LOCATION, city);
+    console.log('📍 Location saved to storage:', city);
     handleClose();
   };
 

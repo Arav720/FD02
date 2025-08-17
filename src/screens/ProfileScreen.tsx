@@ -21,7 +21,6 @@ import {
 import { signOut } from 'aws-amplify/auth';
 import { RootStackScreenProps } from '../types/navigation';
 import { useStorage, STORAGE_KEYS } from '../hooks/useStorage';
-import { resetAndNavigate } from "../utils/NavigationUtil"
 
 export default function ProfileScreen({ navigation }: RootStackScreenProps<'Profile'>) {
   const { getItem, removeItem } = useStorage();
@@ -81,14 +80,22 @@ export default function ProfileScreen({ navigation }: RootStackScreenProps<'Prof
               // Clear local storage
               await removeItem(STORAGE_KEYS.CURRENT_USER);
               await removeItem(STORAGE_KEYS.BOOKING_HISTORY);
+              await removeItem(STORAGE_KEYS.SELECTED_LIBRARY);
+              await removeItem(STORAGE_KEYS.SELECTED_LOCATION);
               await signOut();
               console.log('✅ User logged out successfully');
-              resetAndNavigate('Login');
+              navigation.reset({
+                index: 0,
+                routes: [{ name: 'Login' }],
+              });
             } catch (error) {
               console.error('Logout error:', error);
               // Still clear local storage and navigate even if Cognito signout fails
               await removeItem(STORAGE_KEYS.CURRENT_USER);
-              resetAndNavigate('Login');
+              navigation.reset({
+                index: 0,
+                routes: [{ name: 'Login' }],
+              });
             }
           }
         }

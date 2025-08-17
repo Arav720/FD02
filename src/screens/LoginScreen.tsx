@@ -16,7 +16,6 @@ import { useNavigation, NavigationProp } from '@react-navigation/native';
 import { signIn, signOut, getCurrentUser, fetchUserAttributes, fetchAuthSession } from 'aws-amplify/auth';
 import { EnvelopeIcon, LockClosedIcon } from 'react-native-heroicons/outline';
 import { useStorage, STORAGE_KEYS } from '../hooks/useStorage';
-import { resetAndNavigate, replace } from '../utils/NavigationUtil';
 import { studentApi } from '../services/api';
 
 // Define navigation stack parameter list
@@ -108,7 +107,10 @@ const LoginScreen: React.FC = () => {
             [
               {
                 text: 'OK',
-                onPress: () => resetAndNavigate('Home')
+                onPress: () => navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'Home' }],
+                })
               }
             ]
           );
@@ -122,7 +124,10 @@ const LoginScreen: React.FC = () => {
             [
               {
                 text: 'OK',
-                onPress: () => resetAndNavigate('Home')
+                onPress: () => navigation.reset({
+                  index: 0,
+                  routes: [{ name: 'Home' }],
+                })
               }
             ]
           );

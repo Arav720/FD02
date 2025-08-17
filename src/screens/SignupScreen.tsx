@@ -30,7 +30,6 @@ import {
   fetchAuthSession,
 } from 'aws-amplify/auth';
 import { useStorage, STORAGE_KEYS } from '../hooks/useStorage';
-import { resetAndNavigate } from '../utils/NavigationUtil';
 
 
 // Define navigation stack parameter list
@@ -165,7 +164,10 @@ const SignupScreen: React.FC = () => {
           [
             {
               text: 'OK',
-              onPress: () => resetAndNavigate('Login'),
+              onPress: () => navigation.reset({
+                index: 0,
+                routes: [{ name: 'Login' }],
+              }),
             },
           ],
         );

@@ -7,27 +7,24 @@ import TabNavigator from './TabNavigator';
 import LibraryDetailsScreen from '../screens/LibraryDetailsScreen';
 import EnhancedBookingScreen from '../screens/EnhancedBookingScreen';
 import LoginScreen from '../screens/LoginScreen';
-import AuthScreen from '../screens/AuthScreen';
 import SignupScreen from '../screens/SignupScreen';
-import { navigationRef } from '../utils/NavigationUtil';
-import { RootStackParamList } from '../types/navigation';
 import ProfileScreen from '../screens/ProfileScreen';
 import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
-
+import { RootStackParamList } from '../types/navigation';
 
 interface NavigationProps {
-  initialRoute: 'Login' | 'Home';
+  initialRoute: 'Splash' | 'Login' | 'Home';
 }
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function Navigation({ initialRoute }: NavigationProps) {
   return (
-    <NavigationContainer ref={navigationRef}>
-      <Stack.Navigator initialRouteName={initialRoute}
-      //{initialRoute}
-       // === 'Login' ? 'Login' : 'Splash'
-         screenOptions={{ headerShown: false }}>
+    <NavigationContainer>
+      <Stack.Navigator 
+        initialRouteName={initialRoute}
+        screenOptions={{ headerShown: false }}
+      >
         <Stack.Screen name="Splash" component={SplashScreen} />
         <Stack.Screen name="Login" component={LoginScreen} />
         <Stack.Screen name="Signup" component={SignupScreen} />
