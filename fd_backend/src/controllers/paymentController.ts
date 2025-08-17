@@ -11,7 +11,7 @@ const prisma = new PrismaClient();
 
 // Type definitions
 interface CreateOrderRequest {
-  librarianId: string;
+  librarianId: string; // This is actually libraryId from frontend
   studentId: string;
   amount: number;
 }
@@ -22,21 +22,25 @@ interface WebhookRequest {
   razorpay_payment_id: string;
   razorpay_signature: string;
   student_id: string;
-  librarianId: string;
+  librarianId: string; // This is actually libraryId from frontend
 }
 
 export const createOrder = async (req: Request<{}, {}, CreateOrderRequest>, res: Response): Promise<Response> => {
   try {
-    const { librarianId, studentId, amount } = req.body;
+    const { librarianId: libraryId, studentId, amount } = req.body; // Rename for clarity
     const platformFeePercentage: number = 10;
 
     // Input validation
-    if (!librarianId || !studentId || !amount || amount <= 0) {
+    if (!libraryId || !studentId || !amount || amount <= 0) {
       return res.status(400).json({ 
         success: false,
         message: 'Invalid input parameters' 
       });
     }
+    
+    console.log("LibraryId : ", libraryId);
+    console.log("StudentId : ", studentId);
+    console.log("Amount : ", amount);
 
     // Verify student exists
     const student = await prisma.student.findUnique({
@@ -50,19 +54,36 @@ export const createOrder = async (req: Request<{}, {}, CreateOrderRequest>, res:
       });
     }
 
-    // Verify librarian exists and has Razorpay account
-    const librarian = await prisma.librarian.findUnique({
-      where: { id: librarianId }
+    // Find the library and its associated librarian
+    const library = await prisma.library.findUnique({
+      where: { id: libraryId },
+      include: {
+        librarian: {
+          select: {
+            id: true,
+            email: true,
+            razorpayAccountId: true
+          }
+        }
+      }
     });
 
-    if (!librarian) {
+    if (!library) {
       return res.status(404).json({ 
         success: false,
-        message: 'Librarian not found' 
+        message: 'Library not found' 
       });
     }
 
-    // if (!librarian.razorpayAccountId) {
+    if (!library.librarian) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Librarian not found for this library' 
+      });
+    }
+
+    // Optional: Check if librarian has Razorpay account configured
+    // if (!library.librarian.razorpayAccountId) {
     //   return res.status(400).json({ 
     //     success: false,
     //     message: 'Librarian Razorpay account not configured' 
@@ -71,12 +92,13 @@ export const createOrder = async (req: Request<{}, {}, CreateOrderRequest>, res:
 
     // Create Razorpay order
     const { order, platformFee } = await createRazorpayOrder(amount, 'INR', platformFeePercentage);
-
-    // Create payment record in database
+    console.log("Create Razorpay Order in pabkend : ", order);
+    console.log("Platform Fee in Backend : ", platformFee);
+    // Create payment record in database with correct librarianId
     const paymentRecord = await prisma.payment.create({
       data: {
         studentId,
-        librarianId,
+        librarianId: library.librarian.id, // Use the actual librarian ID
         amount: new Prisma.Decimal(amount.toString()),
         platformFee: new Prisma.Decimal(platformFee.toString()),
         currency: 'INR',
@@ -85,8 +107,8 @@ export const createOrder = async (req: Request<{}, {}, CreateOrderRequest>, res:
       }
     });
 
-    console.log('✅ Payment record created:', paymentRecord.id);
-    console.log('✅ Razorpay order created:', order.id);
+    console.log('Payment record created:', paymentRecord.id);
+    console.log('Razorpay order created:', order.id);
 
     return res.status(200).json({ 
       success: true,
@@ -94,7 +116,9 @@ export const createOrder = async (req: Request<{}, {}, CreateOrderRequest>, res:
         orderId: order.id, 
         amount, 
         currency: order.currency,
-        paymentId: paymentRecord.id
+        paymentId: paymentRecord.id,
+        libraryId: libraryId, // Send back the library ID for frontend reference
+        librarianId: library.librarian.id // Send back the actual librarian ID
       }
     });
 
@@ -110,6 +134,11 @@ export const createOrder = async (req: Request<{}, {}, CreateOrderRequest>, res:
           return res.status(409).json({ 
             success: false,
             message: 'Duplicate order detected' 
+          });
+        case 'P2003':
+          return res.status(400).json({ 
+            success: false,
+            message: 'Invalid reference - student or librarian not found' 
           });
         case 'P2025':
           return res.status(404).json({ 
@@ -140,7 +169,7 @@ export const handleWebhook = async (req: Request<{}, {}, WebhookRequest>, res: R
       razorpay_payment_id,
       razorpay_signature,
       student_id,
-      librarianId,
+      librarianId: libraryId, // This is actually library ID from frontend
     } = req.body;
 
     console.log('🔔 Webhook received:', { event, order_id: razorpay_order_id });
@@ -148,7 +177,7 @@ export const handleWebhook = async (req: Request<{}, {}, WebhookRequest>, res: R
     const secret = process.env.RAZORPAY_KEY_SECRET;
 
     // Validation
-    if (!event || !razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !student_id || !librarianId) {
+    if (!event || !razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !student_id || !libraryId) {
       console.log('❌ Missing required fields in webhook');
       return res.status(400).json({ 
         success: false,
@@ -188,12 +217,21 @@ export const handleWebhook = async (req: Request<{}, {}, WebhookRequest>, res: R
       });
     }
 
-    // Find payment record
+    // Find payment record with related data
     const paymentRecord = await prisma.payment.findUnique({
       where: { razorpayOrderId: razorpay_order_id },
       include: {
         student: { select: { id: true, email: true } },
-        librarian: { select: { id: true, email: true, razorpayAccountId: true } }
+        librarian: { 
+          select: { 
+            id: true, 
+            email: true, 
+            razorpayAccountId: true,
+            libraries: {
+              select: { id: true, libraryName: true }
+            }
+          } 
+        }
       }
     });
 
@@ -214,14 +252,14 @@ export const handleWebhook = async (req: Request<{}, {}, WebhookRequest>, res: R
       });
     }
 
-    // Verify librarian has Razorpay account
-    if (!paymentRecord.librarian.razorpayAccountId) {
-      console.log('❌ Librarian missing Razorpay account');
-      return res.status(400).json({ 
-        success: false,
-        message: 'Librarian account configuration error' 
-      });
-    }
+    // Verify librarian has Razorpay account (optional check)
+    // if (!paymentRecord.librarian.razorpayAccountId) {
+    //   console.log('❌ Librarian missing Razorpay account');
+    //   return res.status(400).json({ 
+    //     success: false,
+    //     message: 'Librarian account configuration error' 
+    //   });
+    // }
 
     // Process payment and payout in transaction
     const result = await prisma.$transaction(async (tx) => {
@@ -240,7 +278,7 @@ export const handleWebhook = async (req: Request<{}, {}, WebhookRequest>, res: R
       const payoutAmount = Number(paymentRecord.amount) - Number(paymentRecord.platformFee);
       const payoutAmountPaise = Math.round(payoutAmount * 100);
       
-      // Create payout
+      // Create payout (commented out for now)
       // const payout = await createPayout(
       //   payoutAmountPaise,
       //   paymentRecord.librarian.razorpayAccountId!,
@@ -251,24 +289,26 @@ export const handleWebhook = async (req: Request<{}, {}, WebhookRequest>, res: R
       const finalPayment = await tx.payment.update({
         where: { id: paymentRecord.id },
         data: {
-        //  razorpayTransferId: payout.id,
+          // razorpayTransferId: payout.id,
           status: 'TRANSFERRED',
         }
       });
 
-      return { updatedPayment, 
-       // payout,
-         payoutAmount };
+      return { 
+        updatedPayment, 
+        // payout,
+        payoutAmount 
+      };
     });
 
-    console.log(`✅ ₹${result.payoutAmount} transferred to ${paymentRecord.librarian.email}`);
+    console.log(`✅ ₹${result.payoutAmount} processed for ${paymentRecord.librarian.email}`);
     
     return res.status(200).json({ 
       success: true,
-      message: 'Payment processed and payout completed',
+      message: 'Payment processed successfully',
       data: {
         paymentId: paymentRecord.id,
-      //  transferId: result.payout.id,
+        // transferId: result.payout.id,
         amount: result.payoutAmount
       }
     });
@@ -278,6 +318,13 @@ export const handleWebhook = async (req: Request<{}, {}, WebhookRequest>, res: R
     
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       console.error('Prisma error:', error.code, error.message);
+      
+      if (error.code === 'P2003') {
+        return res.status(400).json({ 
+          success: false,
+          message: 'Invalid reference in payment data' 
+        });
+      }
     }
     
     return res.status(500).json({ 

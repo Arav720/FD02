@@ -9,6 +9,6 @@ const router = Router();
 router.post('/create-order', validateCreateOrder, createOrder);
 
 // Handle Razorpay webhook
-router.post('/webhook', validateWebhook, handleWebhook);
+router.post('/webhook', handleWebhook);
 
 export default router;

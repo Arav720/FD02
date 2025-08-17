@@ -295,3 +295,156 @@ export const timeSlotApi = {
     }
   },
 };
+
+
+// Payment API
+export const paymentApi = {
+  // Create Razorpay order
+  createOrder: async (orderData: {
+    librarianId: string;
+    studentId: string;
+    amount: number;
+    token?: string;
+  }): Promise<{
+    
+    data: {
+      orderId: string;
+      amount: number;
+      currency: string;
+    };
+    
+  }> => {
+    try {
+      console.log('💳 Creating Razorpay order with data:', orderData);
+      const response = await api.post('/payments/create-order', {
+        librarianId: orderData.librarianId,
+        studentId: orderData.studentId,
+        amount: orderData.amount,
+      });
+      console.log('✅ Order created successfully:', response.data);
+      return {
+        data: response.data,
+      };
+    } catch (error: any) {
+      console.error('❌ Order creation failed:', error);
+      if (error.response?.data) {
+        throw new Error(error.response.data.message || 'Order creation failed');
+      }
+      throw new Error('Network error - please check your connection');
+    }
+  },
+
+  // Confirm payment (webhook simulation)
+  confirmPayment: async (paymentData: {
+    event: string;
+    razorpay_order_id: string;
+    razorpay_payment_id: string;
+    razorpay_signature: string;
+    student_id: string;
+    librarianId: string;
+    token?: string;
+  }): Promise<{
+    success: boolean;
+    data?: any;
+    message: string;
+  }> => {
+    try {
+      console.log('Confirming payment with data:', paymentData);
+      const response = await api.post('/payments/webhook', {
+        event: paymentData.event,
+        razorpay_order_id: paymentData.razorpay_order_id,
+        razorpay_payment_id: paymentData.razorpay_payment_id,
+        razorpay_signature: paymentData.razorpay_signature,
+        student_id: paymentData.student_id,
+        librarianId: paymentData.librarianId,
+      });
+      console.log('✅ Payment confirmed successfully:', response.data);
+      return {
+        success: true,
+        data: response.data,
+        message: 'Payment confirmed successfully'
+      };
+    } catch (error: any) {
+      console.error('❌ Payment confirmation failed:', error);
+      if (error.response?.data) {
+        throw new Error(error.response.data.message || 'Payment confirmation failed');
+      }
+      throw new Error('Network error - please check your connection');
+    }
+  },
+
+  
+};
+
+// Updated handlePayment function using the new API structure
+export const handlePaymentWithAPI = async (
+  librarianId: string,
+  studentId: string,
+  amount: number,
+  token: string,
+  RAZORPAY_KEY: string,
+  setLoading: (loading: boolean) => void,
+  Alert: any,
+  RazorpayCheckout: any
+) => {
+  try {
+    setLoading(true);
+
+    // 1. Create Razorpay order using the new API
+    const orderResponse = await paymentApi.createOrder({
+      librarianId,
+      studentId,
+      amount,
+      token,
+    });
+
+    console.log("Order data:", orderResponse.data);
+
+    // 2. Configure Razorpay options
+    const options = {
+      key: RAZORPAY_KEY,
+      name: 'Focus Desk',
+      description: 'Payment for Library Slot',
+      image: '',
+      order_id: orderResponse.data.orderId,
+      currency: orderResponse.data.currency || 'INR',
+      amount: orderResponse.data.amount,
+      prefill: {
+        name: 'Student X',
+        email: 'studentX@test.com',
+        contact: '9876543210',
+      },
+      theme: {
+        color: '#3399cc',
+      },
+    };
+
+    console.log("Razorpay options:", options);
+
+    // 3. Open Razorpay checkout
+    RazorpayCheckout.open(options)
+      .then(async (paymentResult: any) => {
+        // 4. Confirm payment using the new API
+        await paymentApi.confirmPayment({
+          event: 'payment.captured',
+          razorpay_order_id: paymentResult.razorpay_order_id,
+          razorpay_payment_id: paymentResult.razorpay_payment_id,
+          razorpay_signature: paymentResult.razorpay_signature,
+          student_id: studentId,
+          librarianId: librarianId,
+          token,
+        });
+
+        Alert.alert('Success', 'Payment Successful!');
+      })
+      .catch((error: any) => {
+        console.log("Payment Failed:", error);
+        Alert.alert('Payment Failed', error.description || 'Payment was cancelled');
+      });
+  } catch (err: any) {
+    console.log("Payment Initiation Error:", err);
+    Alert.alert('Error', err.message || 'Failed to initiate payment.');
+  } finally {
+    setLoading(false);
+  }
+};

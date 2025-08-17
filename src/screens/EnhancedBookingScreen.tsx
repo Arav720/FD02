@@ -11,10 +11,11 @@ import {
 import { ArrowLeftIcon, CheckIcon } from 'react-native-heroicons/outline';
 import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query';
 import { Library, LibraryPlan, TimeSlot } from '../types/api';
-import { bookingApi, studentApi, timeSlotApi } from '../services/api';
+import { bookingApi, studentApi, timeSlotApi, paymentApi } from '../services/api';
 import { useStorage, STORAGE_KEYS } from '../hooks/useStorage';
 import { BookingScreenProps } from '../types/navigation';
 import SeatSelectionGrid from '../components/SeatSelectionGrid';
+import RazorpayCheckout from 'react-native-razorpay';
 
 export default function EnhancedBookingScreen({ navigation, route }: BookingScreenProps) {
   const { library, selectedPlan: preSelectedPlan } = route.params;
@@ -22,9 +23,11 @@ export default function EnhancedBookingScreen({ navigation, route }: BookingScre
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<TimeSlot | null>(null);
   const [selectedSeatId, setSelectedSeatId] = useState<string>('');
   const [selectedSeatNumber, setSelectedSeatNumber] = useState<number>(0);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const { getItem } = useStorage();
   const queryClient = useQueryClient();
-
+  const RAZORPAY_KEY = 'rzp_test_WOnh0XISrlnHjs';
+  
   // Load current user from storage
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [isLoadingUser, setIsLoadingUser] = useState(true);
@@ -34,7 +37,7 @@ export default function EnhancedBookingScreen({ navigation, route }: BookingScre
     const loadUserData = async () => {
       try {
         const userData = await getItem(STORAGE_KEYS.CURRENT_USER);
-        console.log("userData from Booking : ",userData);
+        console.log("userData from Booking : ", userData);
         setCurrentUser(userData);
         console.log('📱 Current user loaded in booking screen:', userData);
       } catch (error) {
@@ -58,64 +61,107 @@ export default function EnhancedBookingScreen({ navigation, route }: BookingScre
     staleTime: 30000, // 30 seconds
   });
 
-  // const bookingMutation = useMutation({
-  //   mutationFn: bookingApi.createBooking,
-  //   onSuccess: (data) => {
-  //     // Invalidate and refetch seat data
-  //     queryClient.invalidateQueries({ queryKey: ['seats', library.id] });
-  //     queryClient.invalidateQueries({ queryKey: ['timeslots', library.id] });
-      
-  //     Alert.alert(
-  //       'Booking Confirmed!',
-  //       `Your booking has been confirmed for Seat ${selectedSeatNumber} at ${library.libraryName}.`,
-  //       [{ text: 'OK', onPress: () => navigation.navigate('Home') }]
-  //     );
-  //   },
-  //   onError: (error: any) => {
-  //     console.error('Booking error:', error);
-  //     Alert.alert(
-  //       'Booking Failed', 
-  //       error.message || 'Something went wrong. Please try again.'
-  //     );
-  //   },
-  // });
-
-  // Mutation to verify student exists before booking
-  // const verifyStudentMutation = useMutation({
-  //   mutationFn: studentApi.getStudentByCognitoId,
-  //   onSuccess: (studentData) => {
-  //     console.log('✅ Student verified:', studentData);
-  //     // Proceed with booking using the verified student ID
-  //     proceedWithBooking(studentData.id);
-  //   },
-  //   onError: (error: any) => {
-  //     console.error('❌ Student verification failed:', error);
-  //     Alert.alert(
-  //       'Authentication Error',
-  //       'Please login again to continue booking.',
-  //       [{ text: 'Login', onPress: () => navigation.navigate('Login') }]
-  //     );
-  //   },
-  // });
   const handleSeatSelect = (seatId: string, seatNumber: number) => {
     setSelectedSeatId(seatId);
     setSelectedSeatNumber(seatNumber);
   };
 
-  const handleBookNowPress = () => {
+  // Create booking mutation
+  const bookingMutation = useMutation({
+    mutationFn: (bookingData: any) => bookingApi.createBooking(bookingData),
+    onSuccess: (data) => {
+      console.log('✅ Booking created successfully:', data);
+      Alert.alert(
+        'Success!',
+        'Your seat has been booked successfully!',
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              // Navigate to bookings or home screen
+              navigation.navigate('Home');
+            },
+          },
+        ]
+      );
+    },
+    onError: (error: any) => {
+      console.error('❌ Booking failed:', error);
+      Alert.alert(
+        'Booking Failed',
+        error.message || 'Something went wrong. Please try again.',
+        [{ text: 'OK' }]
+      );
+    },
+  });
+
+  const handlePaymentSuccess = async (paymentResult: any) => {
+    try {
+      console.log('🎯 Payment result received:', paymentResult);
+      
+      // Check if required payment fields are present
+      if (!paymentResult.razorpay_order_id || !paymentResult.razorpay_payment_id) {
+        throw new Error('Payment verification failed: Missing payment details');
+      }
+
+      // Confirm payment with backend
+      const paymentConfirmData = {
+        event: 'payment.captured',
+        razorpay_order_id: paymentResult.razorpay_order_id,
+        razorpay_payment_id: paymentResult.razorpay_payment_id,
+        razorpay_signature: paymentResult.razorpay_signature || '', // Handle undefined signature
+        student_id: currentUser.id,
+        librarianId: library.id,
+        token: currentUser.accessToken,
+      };
+
+      console.log('💳 Confirming payment with data:', paymentConfirmData);
+      
+      await paymentApi.confirmPayment(paymentConfirmData);
+
+      // Create booking after successful payment confirmation
+      const bookingData = {
+        studentId: currentUser.id,
+        libraryId: library.id,
+        planId: selectedPlan!.id,
+        timeSlotId: selectedTimeSlot!.id,
+        seatId: selectedSeatId,
+        amount: selectedPlan!.price,
+        paymentId: paymentResult.razorpay_payment_id,
+        orderId: paymentResult.razorpay_order_id,
+        status: 'CONFIRMED',
+      };
+
+      console.log('📝 Creating booking with data:', bookingData);
+      //await bookingMutation.mutateAsync(bookingData);
+
+    } catch (error: any) {
+      console.error('❌ Post-payment processing failed:', error);
+      Alert.alert(
+        'Payment Processing Error',
+        error.message || 'There was an issue processing your payment. Please contact support.',
+        [{ text: 'OK' }]
+      );
+    }
+  };
+
+  const handleBookNowPress = async () => {
+    // Validation checks
     if (isLoadingUser) {
       Alert.alert('Loading', 'Please wait while we verify your login status.');
       return;
     }
-    console.log("current user in handle Book press",currentUser.accessToken);
-    if (!currentUser.accessToken) {
+
+    console.log("current user in handle Book press", currentUser?.accessToken);
+    
+    if (!currentUser?.accessToken) {
       Alert.alert('Login Required', 'Please login to book a seat.', [
         { text: 'Login', onPress: () => navigation.navigate('Login') },
         { text: 'Cancel', style: 'cancel' }
       ]);
       return;
     }
-
+    
     if (!selectedPlan || !selectedTimeSlot || !selectedSeatId) {
       Alert.alert(
         'Incomplete Selection', 
@@ -124,42 +170,87 @@ export default function EnhancedBookingScreen({ navigation, route }: BookingScre
       return;
     }
 
-    // First verify the student exists in the backend
-    console.log('🔍 Verifying student before booking...');
-  //  verifyStudentMutation.mutate(currentUser.cognitoId);
-   // proceedWithBooking();
+    try {
+      setIsProcessingPayment(true);
+
+      // 1. Create Razorpay order
+      console.log('💳 Creating Razorpay order...');
+      const orderResponse = await paymentApi.createOrder({
+        librarianId: library.id,
+        studentId: currentUser.id,
+        amount: selectedPlan.price,
+        token: currentUser.accessToken,
+      });
+
+      console.log("✅ Order created:", orderResponse.data.data.amount);
+
+      // 2. Configure Razorpay options
+      const options = {
+        key: RAZORPAY_KEY,
+        name: 'Focus Desk',
+        description: `${library.libraryName} - ${selectedPlan.planName}`,
+        image: '',
+        order_id: orderResponse.data.data.orderId,
+        currency: orderResponse.data.data.currency || 'INR',
+        amount: orderResponse.data.data.amount,
+        prefill: {
+          name: `${currentUser.firstName} ${currentUser.lastName}`,
+          email: currentUser.email,
+          contact: currentUser.phoneNumber?.replace('+91', '') || '',
+        },
+        theme: {
+          color: '#3399cc',
+        },
+        notes: {
+          libraryId: library.id,
+          planId: selectedPlan.id,
+          timeSlotId: selectedTimeSlot.id,
+          seatId: selectedSeatId,
+          studentId: currentUser.id,
+        },
+      };
+
+      console.log("🎯 Opening Razorpay with options:", options);
+
+      // 3. Open Razorpay checkout
+      RazorpayCheckout.open(options)
+        .then(async (paymentResult: any) => {
+          console.log('💰 Payment successful:', paymentResult);
+          
+          // Validate payment result before proceeding
+          if (paymentResult && paymentResult.razorpay_payment_id && paymentResult.razorpay_order_id) {
+            await handlePaymentSuccess(paymentResult);
+          } else {
+            console.error('❌ Invalid payment result:', paymentResult);
+            Alert.alert(
+              'Payment Verification Failed',
+              'Payment completed but verification failed. Please contact support.'
+            );
+          }
+        })
+        .catch((error: any) => {
+          console.log("❌ Payment Failed:", error);
+          
+          if (error.code === 'PAYMENT_CANCELLED') {
+            Alert.alert('Payment Cancelled', 'You cancelled the payment.');
+          } else {
+            Alert.alert(
+              'Payment Failed', 
+              error.description || error.message || 'Payment failed. Please try again.'
+            );
+          }
+        });
+
+    } catch (error: any) {
+      console.error("❌ Payment Initiation Error:", error);
+      Alert.alert(
+        'Error', 
+        error.message || 'Failed to initiate payment. Please try again.'
+      );
+    } finally {
+      setIsProcessingPayment(false);
+    }
   };
-
-  // const proceedWithBooking = () => {
-  //   if (!selectedPlan || !selectedTimeSlot || !selectedSeatId) return;
-    
-  //   try {
-  //     // Ensure all IDs are strings and match backend expectations
-  //     const bookingData = {
-  //      // studentId: verifiedStudentId, // Use the verified backend student ID
-  //       libraryId: library.id,
-  //       planId: selectedPlan.id,
-  //       timeSlotId: selectedTimeSlot.id,
-  //       seatId: selectedSeatId,
-  //       totalAmount: Number(selectedPlan.price), // Ensure it's a number
-  //     };
-
-  //     console.log('📝 Submitting booking with verified data:', bookingData);
-      
-  //     // Validate all required fields are present
-  //     const requiredFields = ['studentId', 'libraryId', 'planId', 'timeSlotId', 'seatId', 'totalAmount'];
-  //     const missingFields = requiredFields.filter(field => !bookingData[field as keyof typeof bookingData]);
-      
-  //     if (missingFields.length > 0) {
-  //       throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
-  //     }
-      
-  //  //   bookingMutation.mutate(bookingData);
-  //   } catch (error) {
-  //     console.error('Booking submission error:', error);
-  //     Alert.alert('Booking Error', 'Failed to prepare booking data. Please try again.');
-  //   }
-  // };
 
   const renderPlanSelection = () => (
     <View className="mb-6">
@@ -345,24 +436,29 @@ export default function EnhancedBookingScreen({ navigation, route }: BookingScre
 
       {/* Book Button */}
       <View className="p-4 border-t border-gray-200">
-        {/* <Pressable
+        <Pressable
           onPress={handleBookNowPress}
-          disabled={!selectedPlan || !selectedTimeSlot || !selectedSeatId || bookingMutation.isPending || verifyStudentMutation.isPending || isLoadingUser}
+          disabled={!selectedPlan || !selectedTimeSlot || !selectedSeatId || isProcessingPayment || bookingMutation.isPending || isLoadingUser}
           className={`py-4 rounded-lg ${
-            selectedPlan && selectedTimeSlot && selectedSeatId && !bookingMutation.isPending && !verifyStudentMutation.isPending && !isLoadingUser
+            selectedPlan && selectedTimeSlot && selectedSeatId && !isProcessingPayment && !bookingMutation.isPending && !isLoadingUser
               ? 'bg-blue-600'
               : 'bg-gray-300'
           }`}
           android_ripple={{ color: '#2563eb' }}
         >
-          {/* {(bookingMutation.isPending || verifyStudentMutation.isPending || isLoadingUser) ? (
-            <ActivityIndicator color="white" />
+          {(isProcessingPayment || bookingMutation.isPending || isLoadingUser) ? (
+            <View className="flex-row justify-center items-center">
+              <ActivityIndicator color="white" size="small" />
+              <Text className="text-white font-semibold text-lg ml-2">
+                {isLoadingUser ? 'Loading...' : isProcessingPayment ? 'Processing Payment...' : 'Creating Booking...'}
+              </Text>
+            </View>
           ) : (
             <Text className="text-white text-center font-semibold text-lg">
-              Book Now
+              Book Now - ₹{selectedPlan?.price.toLocaleString() || '0'}
             </Text>
-          )} }
-        </Pressable> */}
+          )}
+        </Pressable>
       </View>
     </SafeAreaView>
   );

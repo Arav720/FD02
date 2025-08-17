@@ -166,21 +166,21 @@ const createRazorpayFundAccount = async (contactId: string, bankAccountDetails: 
   }
 };
 
-const createRazorpayOrder = async (totalAmount: number, currency: string, platformFeePercentage: number = 10): Promise<CreateOrderResult> => {
+const createRazorpayOrder = async (totalAmount: number, currency: string, platformFeePercentage: number = 0): Promise<CreateOrderResult> => {
   try {
-    const totalAmountInPaise: number = Math.round(totalAmount * 100);
-    const platformFeeInPaise: number = Math.round(totalAmountInPaise * (platformFeePercentage / 100));
-    const receiptId: string = `receipt_${Date.now()}`;
-
-    const orderData: OrderData = {
-      amount: totalAmountInPaise,
-      currency,
-      receipt: receiptId,
+    console.log('Input amount:', totalAmount); // Should log 600
+  
+    const amountInPaise = totalAmount * 100; // Should be 60000
+    console.log('Amount in paise:', amountInPaise); // Should log 60000
+  
+    const orderData = {
+      amount: amountInPaise, // 60000 paise = ₹600
+      currency: currency,
+      receipt: `receipt_${Date.now()}`,
       payment_capture: 1,
-      notes: {
-        platform_fee_percentage: platformFeePercentage.toString(),
-      },
     };
+  
+    console.log('Order Data Sending to Razorpay:', orderData);
 
     const response: AxiosResponse = await axios.post(
       'https://api.razorpay.com/v1/orders',
@@ -196,7 +196,7 @@ const createRazorpayOrder = async (totalAmount: number, currency: string, platfo
 
     return {
       order: response.data,
-      platformFee: platformFeeInPaise / 100,
+      platformFee: amountInPaise / 100,
     };
   } catch (error: any) {
     console.error('❌ Razorpay Order Creation Failed:', error.response?.data || error.message);
